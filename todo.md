@@ -70,3 +70,14 @@
 - [x] AI referee with text-to-speech announcements
 - [x] Speaker introductions and time announcements
 - [x] Prepare for deployment
+
+## Bug Fixes
+- [ ] Fix room finding issue - users unable to find/join rooms
+
+## Observer/Coach Mode Redesign
+- [x] Fix Switch component crash (infinite loop)
+- [ ] Redesign debate room for observer/coach perspective
+- [ ] User watches two teams debate as 3rd party
+- [ ] AI acts as automated referee/moderator
+- [ ] AI announces speakers and manages time automatically
+- [x] Solo testing mode - start debate without other participants

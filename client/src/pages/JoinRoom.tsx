@@ -29,15 +29,13 @@ export default function JoinRoom() {
   const [roomCode, setRoomCode] = useState("");
   const [team, setTeam] = useState<"government" | "opposition" | null>(null);
   const [speakerRole, setSpeakerRole] = useState("");
-  const [roomInfo, setRoomInfo] = useState<any>(null);
-
   const checkRoom = trpc.debate.getByRoomCode.useQuery(
     { roomCode: roomCode.toUpperCase() },
     { enabled: roomCode.length === 8 }
   );
 
-  // Use the query data directly instead of state
-  const currentRoomInfo = checkRoom.data || roomInfo;
+  // Use the query data directly
+  const roomInfo = checkRoom.data;
 
   const joinDebate = trpc.debate.join.useMutation({
     onSuccess: (data) => {
@@ -63,9 +61,9 @@ export default function JoinRoom() {
   };
 
   const getAvailableRoles = (teamType: "government" | "opposition") => {
-    if (!currentRoomInfo?.participants) return SPEAKER_ROLES[teamType];
+    if (!roomInfo?.participants) return SPEAKER_ROLES[teamType];
     
-    const takenRoles = currentRoomInfo.participants
+    const takenRoles = roomInfo.participants
       .filter((p: any) => p.team === teamType)
       .map((p: any) => p.speakerRole);
     
@@ -137,7 +135,7 @@ export default function JoinRoom() {
                   Checking room...
                 </p>
               )}
-              {roomCode.length === 8 && !checkRoom.isLoading && !roomInfo && (
+              {roomCode.length === 8 && !checkRoom.isLoading && checkRoom.isError && (
                 <p className="text-sm text-destructive font-bold">Room not found</p>
               )}
             </div>

@@ -1,7 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Switch } from "@/components/ui/switch";
+// ScrollArea removed due to React 19 compatibility issue
+import { Checkbox } from "@/components/ui/checkbox";
 import { trpc } from "@/lib/trpc";
 import { useSocket } from "@/hooks/useSocket";
 import { useAIReferee } from "@/hooks/useAIReferee";
@@ -508,9 +508,9 @@ export default function DebateRoom() {
                   <div className="flex flex-col gap-2">
                     {/* Testing Mode Toggle */}
                     <div className="flex items-center gap-2 text-sm">
-                      <Switch
+                      <Checkbox
                         checked={testingMode}
-                        onCheckedChange={setTestingMode}
+                        onCheckedChange={(checked) => setTestingMode(checked === true)}
                         id="testing-mode"
                       />
                       <label htmlFor="testing-mode" className="font-bold uppercase text-xs cursor-pointer">
@@ -599,7 +599,7 @@ export default function DebateRoom() {
             <div className="p-4 border-b-4 border-foreground shrink-0">
               <h3 className="font-black uppercase tracking-wider text-sm">Live Transcript</h3>
             </div>
-            <ScrollArea className="flex-1 p-4">
+            <div className="flex-1 p-4 overflow-y-auto">
               {allTranscripts.length === 0 ? (
                 <p className="text-muted-foreground text-center py-12">
                   Transcripts will appear here during the debate...
@@ -616,7 +616,7 @@ export default function DebateRoom() {
                   ))}
                 </div>
               )}
-            </ScrollArea>
+            </div>
           </div>
 
           {/* Recording Controls */}
@@ -678,7 +678,7 @@ export default function DebateRoom() {
           <div className="p-4 border-b-4 border-foreground">
             <h3 className="font-black uppercase tracking-wider text-sm">Speaker Order</h3>
           </div>
-          <ScrollArea className="flex-1 p-4">
+          <div className="flex-1 p-4 overflow-y-auto">
             <div className="space-y-2">
               {AP_SPEAKER_ORDER.map((role, idx) => {
                 const isGov = ['pm', 'dpm', 'gw', 'pmr'].includes(role);
@@ -710,7 +710,7 @@ export default function DebateRoom() {
                 );
               })}
             </div>
-          </ScrollArea>
+          </div>
 
           {/* Rules */}
           <div className="p-4 border-t-4 border-foreground">
