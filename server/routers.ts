@@ -665,13 +665,74 @@ export const appRouter = router({
             });
           }
           
+          // Generate argument summary using LLM
+          let summary = '';
+          let keyPoints: string[] = [];
+          
+          if (result.text && result.text.length > 50) {
+            try {
+              const summaryResponse = await invokeLLM({
+                messages: [
+                  {
+                    role: 'system',
+                    content: `You are a debate analyst. Analyze the following debate speech segment and extract:
+1. A brief 1-sentence summary of what the speaker is arguing
+2. Key points or arguments made (as bullet points)
+
+Respond in JSON format:
+{"summary": "...", "keyPoints": ["point1", "point2"]}`
+                  },
+                  {
+                    role: 'user',
+                    content: `Speaker Role: ${input.speakerRole}\n\nSpeech segment:\n"${result.text}"`
+                  }
+                ],
+                response_format: {
+                  type: 'json_schema',
+                  json_schema: {
+                    name: 'argument_summary',
+                    strict: true,
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        summary: { type: 'string', description: 'Brief 1-sentence summary' },
+                        keyPoints: { type: 'array', items: { type: 'string' }, description: 'Key arguments made' }
+                      },
+                      required: ['summary', 'keyPoints'],
+                      additionalProperties: false
+                    }
+                  }
+                }
+              });
+              
+              const content = summaryResponse.choices[0]?.message?.content;
+              const contentStr = typeof content === 'string' ? content : JSON.stringify(content);
+              const parsed = JSON.parse(contentStr || '{}');
+              summary = parsed.summary || '';
+              keyPoints = parsed.keyPoints || [];
+              console.log('[Transcribe] Generated summary:', summary);
+            } catch (llmError) {
+              console.error('[Transcribe] LLM summary error:', llmError);
+            }
+          }
+          
+          // Format timestamp
+          const timestamp = input.timestamp || Date.now();
+          const minutes = Math.floor((timestamp % 3600000) / 60000);
+          const seconds = Math.floor((timestamp % 60000) / 1000);
+          const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          
           return { 
             transcript: result.text || '',
             segments: result.segments || [],
+            summary,
+            keyPoints,
+            timestamp: formattedTime,
+            speakerRole: input.speakerRole,
           };
         } catch (error: any) {
           console.error('[Transcribe] Error:', error);
-          return { transcript: '', segments: [] };
+          return { transcript: '', segments: [], summary: '', keyPoints: [], timestamp: '0:00', speakerRole: '' };
         }
       }),
     

@@ -44,7 +44,7 @@ export default function DebateRoom() {
   const { user, isAuthenticated } = useAuth();
   
   const [isRecording, setIsRecording] = useState(false);
-  const [allTranscripts, setAllTranscripts] = useState<Array<{ speaker: string; text: string; timestamp: number }>>([]);
+  const [allTranscripts, setAllTranscripts] = useState<Array<{ speaker: string; text: string; timestamp: number; summary?: string; keyPoints?: string[] }>>([]);
   const [timer, setTimer] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [currentSpeakerIndex, setCurrentSpeakerIndex] = useState(0);
@@ -398,35 +398,78 @@ export default function DebateRoom() {
       };
       updateAudioLevel();
 
-      // Collect audio chunks
-      mediaRecorder.ondataavailable = (event) => {
+      // Collect audio chunks and process them immediately when available
+      mediaRecorder.ondataavailable = async (event) => {
         if (event.data.size > 0) {
           console.log('[Recording] Got audio chunk, size:', event.data.size);
-          audioChunksRef.current.push(event.data);
-          // Also send to other participants
+          
+          // Send to other participants
           event.data.arrayBuffer().then(buffer => {
             socket.sendAudioData(buffer);
           });
+          
+          // Process this chunk immediately for transcription
+          if (isRecordingRef.current && event.data.size > 1000) {
+            try {
+              // Convert blob to base64
+              const reader = new FileReader();
+              const base64Promise = new Promise<string>((resolve, reject) => {
+                reader.onloadend = () => {
+                  const base64 = (reader.result as string).split(',')[1];
+                  resolve(base64);
+                };
+                reader.onerror = reject;
+              });
+              reader.readAsDataURL(event.data);
+              const base64Audio = await base64Promise;
+              
+              console.log('[Recording] Sending chunk for transcription, base64 length:', base64Audio.length);
+              setInterimTranscript('Transcribing...');
+              
+              // Send to backend for transcription
+              const result = await transcribeAudio.mutateAsync({
+                audioData: base64Audio,
+                sessionId: roomData?.session?.id || 0,
+                speakerRole: currentSpeaker,
+                timestamp: timer,
+              });
+              
+              setInterimTranscript('');
+              
+              if (result.transcript && result.transcript.trim()) {
+                console.log('[Recording] Got transcript:', result.transcript);
+                console.log('[Recording] Summary:', result.summary);
+                console.log('[Recording] Key points:', result.keyPoints);
+                const newTranscript = {
+                  speaker: SPEAKER_NAMES[currentSpeaker] || 'Speaker',
+                  text: result.transcript,
+                  timestamp: timer * 1000,
+                  summary: result.summary || '',
+                  keyPoints: result.keyPoints || [],
+                };
+                setAllTranscripts(prev => [...prev, newTranscript]);
+                
+                // Send to other participants via socket
+                socket.sendTranscriptUpdate(0, result.transcript, timer * 1000);
+              }
+            } catch (err: any) {
+              console.error('[Recording] Transcription error:', err);
+              setInterimTranscript('');
+            }
+          }
         }
       };
 
       // Start recording with 5-second chunks for transcription
+      // The timeslice parameter tells MediaRecorder to fire ondataavailable every 5 seconds
       mediaRecorder.start(5000);
-      console.log('[Recording] MediaRecorder started with 5s timeslice');
-      
-      // Set up interval to process and transcribe chunks every 5 seconds
-      transcriptionIntervalRef.current = setInterval(() => {
-        if (isRecordingRef.current && audioChunksRef.current.length > 0) {
-          console.log('[Recording] Processing audio chunks...');
-          processAudioChunk();
-        }
-      }, 5000);
+      console.log('[Recording] MediaRecorder started with 5s timeslice - will fire ondataavailable every 5 seconds');
       
       setIsRecording(true);
       socket.startSpeaking(0);
       startTimer();
       
-      toast.success('Recording started - speak now!');
+      toast.success('Recording started - transcripts will appear every 5 seconds!');
       
       if (refereeEnabled) {
         referee.announceSpeaker(currentSpeaker);
@@ -450,12 +493,6 @@ export default function DebateRoom() {
     console.log('[Recording] Stopping recording...');
     isRecordingRef.current = false;
     
-    // Clear transcription interval
-    if (transcriptionIntervalRef.current) {
-      clearInterval(transcriptionIntervalRef.current);
-      transcriptionIntervalRef.current = null;
-    }
-    
     // Stop audio level monitoring
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -468,15 +505,9 @@ export default function DebateRoom() {
     analyserRef.current = null;
     setAudioLevel(0);
     
-    // Stop media recorder and process final chunk
+    // Stop media recorder - final chunk will be processed by ondataavailable
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
-      
-      // Process any remaining audio chunks
-      if (audioChunksRef.current.length > 0) {
-        console.log('[Recording] Processing final audio chunks...');
-        await processAudioChunk();
-      }
     }
     
     // Stop all tracks
@@ -1046,10 +1077,37 @@ export default function DebateRoom() {
                 <div className="space-y-4">
                   {allTranscripts.map((t, i) => (
                     <div key={i} className="brutalist-border p-4">
-                      <p className="text-sm font-black uppercase text-muted-foreground mb-1">
-                        {t.speaker} • {formatTime(Math.floor(t.timestamp / 1000))}
-                      </p>
-                      <p>{t.text}</p>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-black uppercase text-muted-foreground">
+                          {t.speaker} • {formatTime(Math.floor(t.timestamp / 1000))}
+                        </p>
+                      </div>
+                      {/* Show summary if available */}
+                      {t.summary && (
+                        <div className="mb-3 p-3 bg-muted/30">
+                          <p className="text-xs font-black uppercase text-muted-foreground mb-1">Summary</p>
+                          <p className="font-medium">{t.summary}</p>
+                        </div>
+                      )}
+                      {/* Show key points if available */}
+                      {t.keyPoints && t.keyPoints.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs font-black uppercase text-muted-foreground mb-2">Key Arguments</p>
+                          <ul className="space-y-1">
+                            {t.keyPoints.map((point, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-muted-foreground">•</span>
+                                <span className="text-sm">{point}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {/* Show raw transcript as expandable */}
+                      <details className="text-sm text-muted-foreground">
+                        <summary className="cursor-pointer font-bold uppercase text-xs hover:text-foreground">View Raw Transcript</summary>
+                        <p className="mt-2 p-2 bg-muted/20 text-foreground">{t.text}</p>
+                      </details>
                     </div>
                   ))}
                   {/* Show interim transcript while speaking */}

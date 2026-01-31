@@ -98,3 +98,7 @@
 - [x] Fix microphone audio detection showing 0% level
 - [x] Fix live audio transcription pipeline (compare with working reference repo)
 - [x] Fix Whisper transcription outputting wrong language (should force English)
+- [x] Improve transcription to show real-time argument summaries
+- [x] Add timestamps to transcript entries
+- [x] Show what points each speaker is making as debate progresses
+- [x] Fix continuous audio capture - only first few seconds captured, then stops
