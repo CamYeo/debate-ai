@@ -429,67 +429,91 @@ export default function DebateRoom() {
     }
   };
 
+  // Ref to track mic testing state for closure
+  const isMicTestingRef = useRef(false);
+  
   // Microphone test functions
   const startMicTest = async () => {
     console.log('[MicTest] Starting microphone test...');
     setMicTestStatus('testing');
     setMicTestLevel(0);
     setIsMicTesting(true);
+    isMicTestingRef.current = true;
     
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       micTestStreamRef.current = stream;
-      console.log('[MicTest] Microphone access granted!');
+      console.log('[MicTest] Microphone access granted!', stream.getAudioTracks());
       
-      // Set up audio level monitoring
+      // Resume audio context if suspended (required by some browsers)
       const audioContext = new AudioContext();
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+      console.log('[MicTest] AudioContext state:', audioContext.state);
+      
       const analyser = audioContext.createAnalyser();
       const microphone = audioContext.createMediaStreamSource(stream);
       analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
+      analyser.smoothingTimeConstant = 0.3; // Lower smoothing for faster response
+      analyser.minDecibels = -90;
+      analyser.maxDecibels = -10;
       microphone.connect(analyser);
       
       micTestContextRef.current = audioContext;
       micTestAnalyserRef.current = analyser;
       
-      // Monitor audio levels
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      // Monitor audio levels using time domain data (more reliable for voice)
+      const dataArray = new Uint8Array(analyser.fftSize);
       let maxLevel = 0;
       
       const updateLevel = () => {
-        if (micTestAnalyserRef.current && isMicTesting) {
-          micTestAnalyserRef.current.getByteFrequencyData(dataArray);
-          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          const normalizedLevel = Math.min(100, Math.round((average / 128) * 100));
-          setMicTestLevel(normalizedLevel);
-          
-          if (normalizedLevel > maxLevel) {
-            maxLevel = normalizedLevel;
-          }
-          
-          // If we detect good audio, mark as success
-          if (maxLevel > 30) {
-            setMicTestStatus('success');
-          }
-          
-          micTestAnimationRef.current = requestAnimationFrame(updateLevel);
+        if (!isMicTestingRef.current || !micTestAnalyserRef.current) {
+          return;
         }
+        
+        // Use time domain data for more accurate voice detection
+        micTestAnalyserRef.current.getByteTimeDomainData(dataArray);
+        
+        // Calculate RMS (root mean square) for better audio level detection
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          const value = (dataArray[i] - 128) / 128; // Normalize to -1 to 1
+          sum += value * value;
+        }
+        const rms = Math.sqrt(sum / dataArray.length);
+        const normalizedLevel = Math.min(100, Math.round(rms * 300)); // Scale up for visibility
+        
+        setMicTestLevel(normalizedLevel);
+        console.log('[MicTest] Audio level:', normalizedLevel, 'RMS:', rms.toFixed(4));
+        
+        if (normalizedLevel > maxLevel) {
+          maxLevel = normalizedLevel;
+        }
+        
+        // If we detect good audio, mark as success
+        if (maxLevel > 20) {
+          setMicTestStatus('success');
+        }
+        
+        micTestAnimationRef.current = requestAnimationFrame(updateLevel);
       };
       updateLevel();
       
       toast.success('Microphone connected! Speak to test...');
       
-      // Auto-stop after 5 seconds
+      // Auto-stop after 8 seconds (longer for testing)
       setTimeout(() => {
-        if (isMicTesting) {
+        if (isMicTestingRef.current) {
           stopMicTest();
         }
-      }, 5000);
+      }, 8000);
       
     } catch (error: any) {
       console.error('[MicTest] Error:', error);
       setMicTestStatus('error');
       setIsMicTesting(false);
+      isMicTestingRef.current = false;
       
       if (error.name === 'NotAllowedError') {
         toast.error('Microphone access denied. Please allow access in browser settings.');
@@ -503,6 +527,7 @@ export default function DebateRoom() {
   
   const stopMicTest = () => {
     console.log('[MicTest] Stopping microphone test...');
+    isMicTestingRef.current = false;
     
     if (micTestAnimationRef.current) {
       cancelAnimationFrame(micTestAnimationRef.current);
