@@ -636,11 +636,11 @@ export const appRouter = router({
           
           console.log('[Transcribe] Uploaded audio to:', audioUrl);
           
-          // Transcribe using Whisper
+          // Transcribe using Whisper - force English language
           const result = await transcribeAudio({
             audioUrl,
             language: "en",
-            prompt: "Transcribe this debate speech. Focus on clarity and accuracy.",
+            prompt: "This is a competitive debate speech in English. Transcribe exactly what the speaker says in English. Focus on clarity and accuracy of the English words spoken.",
           });
           
           // Check if it's an error response

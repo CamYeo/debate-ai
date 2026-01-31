@@ -134,10 +134,15 @@ export async function transcribeAudio(
     formData.append("model", "whisper-1");
     formData.append("response_format", "verbose_json");
     
+    // Force language if specified - this tells Whisper to transcribe in this language
+    if (options.language) {
+      formData.append("language", options.language);
+    }
+    
     // Add prompt - use custom prompt if provided, otherwise generate based on language
     const prompt = options.prompt || (
       options.language 
-        ? `Transcribe the user's voice to text, the user's working language is ${getLanguageName(options.language)}`
+        ? `Transcribe the following audio in ${getLanguageName(options.language)}. The speaker is speaking ${getLanguageName(options.language)}.`
         : "Transcribe the user's voice to text"
     );
     formData.append("prompt", prompt);
