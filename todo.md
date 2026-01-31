@@ -94,3 +94,4 @@
 - [x] Fix transcription not appearing on screen when speaking
 - [x] Fix microphone permission not being requested
 - [x] Add admin mode to play all speaker roles for testing
+- [x] Add Test Microphone button to verify mic before starting debate

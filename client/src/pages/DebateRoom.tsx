@@ -54,6 +54,9 @@ export default function DebateRoom() {
   const [refereeEnabled, setRefereeEnabled] = useState(true);
   const [lastAnnouncedTime, setLastAnnouncedTime] = useState<number | null>(null);
   const [interimTranscript, setInterimTranscript] = useState<string>("");
+  const [isMicTesting, setIsMicTesting] = useState(false);
+  const [micTestLevel, setMicTestLevel] = useState(0);
+  const [micTestStatus, setMicTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -63,6 +66,12 @@ export default function DebateRoom() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
+  
+  // Mic test refs
+  const micTestContextRef = useRef<AudioContext | null>(null);
+  const micTestAnalyserRef = useRef<AnalyserNode | null>(null);
+  const micTestAnimationRef = useRef<number | null>(null);
+  const micTestStreamRef = useRef<MediaStream | null>(null);
 
   // AI Referee
   const referee = useAIReferee({ enabled: refereeEnabled });
@@ -420,6 +429,104 @@ export default function DebateRoom() {
     }
   };
 
+  // Microphone test functions
+  const startMicTest = async () => {
+    console.log('[MicTest] Starting microphone test...');
+    setMicTestStatus('testing');
+    setMicTestLevel(0);
+    setIsMicTesting(true);
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micTestStreamRef.current = stream;
+      console.log('[MicTest] Microphone access granted!');
+      
+      // Set up audio level monitoring
+      const audioContext = new AudioContext();
+      const analyser = audioContext.createAnalyser();
+      const microphone = audioContext.createMediaStreamSource(stream);
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      microphone.connect(analyser);
+      
+      micTestContextRef.current = audioContext;
+      micTestAnalyserRef.current = analyser;
+      
+      // Monitor audio levels
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let maxLevel = 0;
+      
+      const updateLevel = () => {
+        if (micTestAnalyserRef.current && isMicTesting) {
+          micTestAnalyserRef.current.getByteFrequencyData(dataArray);
+          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const normalizedLevel = Math.min(100, Math.round((average / 128) * 100));
+          setMicTestLevel(normalizedLevel);
+          
+          if (normalizedLevel > maxLevel) {
+            maxLevel = normalizedLevel;
+          }
+          
+          // If we detect good audio, mark as success
+          if (maxLevel > 30) {
+            setMicTestStatus('success');
+          }
+          
+          micTestAnimationRef.current = requestAnimationFrame(updateLevel);
+        }
+      };
+      updateLevel();
+      
+      toast.success('Microphone connected! Speak to test...');
+      
+      // Auto-stop after 5 seconds
+      setTimeout(() => {
+        if (isMicTesting) {
+          stopMicTest();
+        }
+      }, 5000);
+      
+    } catch (error: any) {
+      console.error('[MicTest] Error:', error);
+      setMicTestStatus('error');
+      setIsMicTesting(false);
+      
+      if (error.name === 'NotAllowedError') {
+        toast.error('Microphone access denied. Please allow access in browser settings.');
+      } else if (error.name === 'NotFoundError') {
+        toast.error('No microphone found. Please connect a microphone.');
+      } else {
+        toast.error(`Microphone error: ${error.message || 'Unknown error'}`);
+      }
+    }
+  };
+  
+  const stopMicTest = () => {
+    console.log('[MicTest] Stopping microphone test...');
+    
+    if (micTestAnimationRef.current) {
+      cancelAnimationFrame(micTestAnimationRef.current);
+      micTestAnimationRef.current = null;
+    }
+    
+    if (micTestContextRef.current) {
+      micTestContextRef.current.close();
+      micTestContextRef.current = null;
+    }
+    
+    if (micTestStreamRef.current) {
+      micTestStreamRef.current.getTracks().forEach(track => track.stop());
+      micTestStreamRef.current = null;
+    }
+    
+    micTestAnalyserRef.current = null;
+    setIsMicTesting(false);
+    
+    if (micTestStatus !== 'error') {
+      toast.success('Microphone test complete!');
+    }
+  };
+
   // Format time
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -548,6 +655,23 @@ export default function DebateRoom() {
               <Users className="h-5 w-5" />
               <span className="font-bold">{participants.length}/6</span>
             </div>
+            {/* Test Microphone Button */}
+            <button
+              onClick={isMicTesting ? stopMicTest : startMicTest}
+              className={`flex items-center gap-2 brutalist-border px-3 py-2 font-black uppercase text-xs transition-colors ${
+                isMicTesting 
+                  ? 'bg-green-500 text-white border-green-500' 
+                  : micTestStatus === 'success'
+                  ? 'bg-green-100 text-green-800 border-green-500'
+                  : micTestStatus === 'error'
+                  ? 'bg-red-100 text-red-800 border-red-500'
+                  : 'hover:bg-foreground hover:text-background'
+              }`}
+            >
+              <Mic className={`h-4 w-4 ${isMicTesting ? 'animate-pulse' : ''}`} />
+              {isMicTesting ? 'Testing...' : micTestStatus === 'success' ? 'Mic OK' : micTestStatus === 'error' ? 'Mic Error' : 'Test Mic'}
+            </button>
+            
             {isAdmin && testingMode && (
               <div className="flex items-center gap-2 bg-yellow-500 text-black px-3 py-1">
                 <span className="text-xs font-black uppercase">Admin Mode</span>
@@ -573,6 +697,49 @@ export default function DebateRoom() {
             <Bot className="h-5 w-5" />
             <span className="font-black uppercase text-sm">AI Referee Speaking</span>
             <span className="text-sm opacity-80">"{referee.currentAnnouncement}"</span>
+          </div>
+        </div>
+      )}
+
+      {/* Microphone Test Indicator */}
+      {isMicTesting && (
+        <div className="bg-green-500 text-white px-4 py-3">
+          <div className="container">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Mic className="h-5 w-5 animate-pulse" />
+                <span className="font-black uppercase text-sm">Testing Microphone</span>
+                <span className="text-sm opacity-80">Speak now to test your audio...</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase">Level:</span>
+                  <div className="w-32 h-4 bg-white/30 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-75 rounded-full ${
+                        micTestLevel > 70 ? 'bg-red-400' : 
+                        micTestLevel > 30 ? 'bg-white' : 
+                        'bg-yellow-300'
+                      }`}
+                      style={{ width: `${micTestLevel}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold w-8">{micTestLevel}%</span>
+                </div>
+                <Button
+                  onClick={stopMicTest}
+                  size="sm"
+                  className="bg-white text-green-600 hover:bg-white/90 font-black uppercase text-xs"
+                >
+                  Stop Test
+                </Button>
+              </div>
+            </div>
+            <p className="text-xs mt-2 opacity-80">
+              {micTestLevel < 10 ? "No audio detected - check your microphone connection" :
+               micTestLevel < 30 ? "Low audio - try speaking louder or moving closer" :
+               "Good audio level detected!"}
+            </p>
           </div>
         </div>
       )}
