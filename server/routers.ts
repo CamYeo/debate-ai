@@ -610,6 +610,71 @@ export const appRouter = router({
         return { transcript: result.text, segments: result.segments };
       }),
     
+    // New endpoint that accepts base64 audio data directly
+    transcribeAudio: protectedProcedure
+      .input(z.object({
+        audioData: z.string(), // Base64 encoded audio
+        speechId: z.number().optional(),
+        sessionId: z.number(),
+        speakerRole: z.string(),
+        timestamp: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          // Decode base64 audio
+          const audioBuffer = Buffer.from(input.audioData, 'base64');
+          
+          // Check minimum size (skip tiny chunks)
+          if (audioBuffer.length < 1000) {
+            return { transcript: '', segments: [] };
+          }
+          
+          // Upload to S3
+          const { storagePut } = await import('./storage');
+          const fileName = `audio/${input.sessionId}/${input.speakerRole}/${Date.now()}.webm`;
+          const { url: audioUrl } = await storagePut(fileName, audioBuffer, 'audio/webm');
+          
+          console.log('[Transcribe] Uploaded audio to:', audioUrl);
+          
+          // Transcribe using Whisper
+          const result = await transcribeAudio({
+            audioUrl,
+            language: "en",
+            prompt: "Transcribe this debate speech. Focus on clarity and accuracy.",
+          });
+          
+          // Check if it's an error response
+          if ('error' in result) {
+            console.error('[Transcribe] Error:', result.error);
+            return { transcript: '', segments: [] };
+          }
+          
+          console.log('[Transcribe] Got transcript:', result.text?.substring(0, 100));
+          
+          // If we have a speechId, append to existing transcript
+          if (input.speechId) {
+            const speech = await db.getSpeechById(input.speechId);
+            const existingTranscript = speech?.transcript || '';
+            const newTranscript = existingTranscript 
+              ? `${existingTranscript} ${result.text}` 
+              : result.text;
+            
+            await db.updateSpeech(input.speechId, {
+              transcript: newTranscript,
+              audioUrl,
+            });
+          }
+          
+          return { 
+            transcript: result.text || '',
+            segments: result.segments || [],
+          };
+        } catch (error: any) {
+          console.error('[Transcribe] Error:', error);
+          return { transcript: '', segments: [] };
+        }
+      }),
+    
     addSegment: protectedProcedure
       .input(z.object({
         speechId: z.number(),

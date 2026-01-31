@@ -96,3 +96,4 @@
 - [x] Add admin mode to play all speaker roles for testing
 - [x] Add Test Microphone button to verify mic before starting debate
 - [x] Fix microphone audio detection showing 0% level
+- [x] Fix live audio transcription pipeline (compare with working reference repo)
