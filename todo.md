@@ -86,3 +86,5 @@
 - [x] Participants don't see each other in the room (sync issue)
 - [x] Audio not being detected when speaking
 - [x] Transcription not working
+
+- [x] Fix useAIReferee infinite loop error (Maximum update depth exceeded)

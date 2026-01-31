@@ -370,11 +370,17 @@ export default function DebateRoom() {
     }
   };
 
-  // Cleanup on unmount
+  // Cleanup on unmount - use refs to avoid dependency issues
+  const refereeStopRef = useRef(referee.stop);
+  refereeStopRef.current = referee.stop;
+  
   useEffect(() => {
     return () => {
       stopTimer();
-      referee.stop();
+      // Use ref to avoid stale closure
+      if (typeof refereeStopRef.current === 'function') {
+        refereeStopRef.current();
+      }
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -384,7 +390,7 @@ export default function DebateRoom() {
         mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [stopTimer, referee]);
+  }, [stopTimer]);
 
   if (!isAuthenticated) {
     return (
